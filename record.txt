@@ -1,0 +1,109 @@
+Reproducibility commands
+=================================================
+
+Copy-paste the blocks below into a bash shell in the repo root.
+Each block ends with the `stats` command so stats_output.txt holds the
+total cumulative counters (index build + inserts + queries, one number).
+
+Setup:
+    mkdir -p results
+
+
+-----------------------------------------------------------------
+EXPERIMENT 1 - LRU vs MRU
+-----------------------------------------------------------------
+Fixed: buffer_pool_size=16, index_strategy=heap_scan
+Vary:  replacement_policy in {LRU, MRU}, workload in {sequential, random}
+Numbers reported: total I/O, hit rate (from stats_output.txt)
+
+    python3 workload_generator.py --mode sequential --records 5000 --queries 500 > workload_seq.txt
+    echo stats >> workload_seq.txt
+    python3 workload_generator.py --mode random --records 5000 --queries 500 > workload_rnd.txt
+    echo stats >> workload_rnd.txt
+
+    for WL in seq rnd; do
+        for POL in LRU MRU; do
+            rm -f *.bin output.txt log.csv stats_output.txt
+            python3 -c "import json; json.dump({'page_size':4096,'max_records_per_page':10,'buffer_pool_size':16,'replacement_policy':'$POL','index_strategy':'heap_scan'}, open('config.json','w'))"
+            python3 archive.py config.json workload_${WL}.txt
+            cp stats_output.txt results/exp1_${WL}_${POL}.txt
+        done
+    done
+
+
+-----------------------------------------------------------------
+EXPERIMENT 2 - Index Strategy Comparison
+-----------------------------------------------------------------
+Two workloads, both on the PK field (id):
+  - equality: 500 random PK searches  (workload_eq.txt)
+  - range:    500 random PK ranges    (workload_rng.txt)
+Run each against heap_scan, hash_index, bplus_tree.
+hash_index range falls back to a heap scan.
+
+    # Equality workload: workload_generator's "random" mode emits PK searches.
+    python3 workload_generator.py --mode random --records 5000 --queries 500 > workload_eq.txt
+    echo stats >> workload_eq.txt
+
+    # Range-over-PK workload (workload_generator's "range" mode targets
+    # the `age` column, but we want the PK column for this experiment).
+    python3 - <<'PY' > workload_rng.txt
+    import random
+    rng = random.Random(42)
+    print("create type person 4 1 id int name str age int city str")
+    ids = list(range(1, 5001))
+    rng.shuffle(ids)
+    for pk in ids:
+        print(f"create record person {pk} Name{pk} {rng.randint(18,90)} City{rng.randint(1,999)}")
+    for _ in range(500):
+        lo = rng.randint(1, 4900)
+        hi = lo + rng.randint(1, 100)
+        print(f"range_search person id {lo} {hi}")
+    print("stats")
+    PY
+
+    for IDX in heap_scan hash_index bplus_tree; do
+        for WL in eq rng; do
+            rm -f *.bin output.txt log.csv stats_output.txt
+            python3 -c "import json; json.dump({'page_size':4096,'max_records_per_page':10,'buffer_pool_size':16,'replacement_policy':'LRU','index_strategy':'$IDX'}, open('config.json','w'))"
+            python3 archive.py config.json workload_${WL}.txt
+            cp stats_output.txt results/exp2_${IDX}_${WL}.txt
+        done
+    done
+
+
+-----------------------------------------------------------------
+EXPERIMENT 3 - Buffer Pool Size Sensitivity
+-----------------------------------------------------------------
+Fixed: index_strategy=bplus_tree, replacement_policy=LRU, random workload
+Vary:  buffer_pool_size in {4, 8, 16, 32, 64}
+
+    python3 workload_generator.py --mode random --records 5000 --queries 500 > workload_bp.txt
+    echo stats >> workload_bp.txt
+
+    for BP in 4 8 16 32 64; do
+        rm -f *.bin output.txt log.csv stats_output.txt
+        python3 -c "import json; json.dump({'page_size':4096,'max_records_per_page':10,'buffer_pool_size':$BP,'replacement_policy':'LRU','index_strategy':'bplus_tree'}, open('config.json','w'))"
+        python3 archive.py config.json workload_bp.txt
+        cp stats_output.txt results/exp3_bp${BP}.txt
+    done
+
+
+-----------------------------------------------------------------
+Where the numbers are
+-----------------------------------------------------------------
+results/exp*.txt files all look like:
+
+    === STATISTICS ===
+    Disk I/O:        X reads, Y writes
+    Buffer Pool:     R requests, H hits, M misses (P% hit rate)
+    Evictions:       E (D dirty writebacks)
+    Index:           <strategy>, N nodes visited
+    Records:         S scanned, R returned
+
+For the report tables:
+    Exp 1 -> Disk I/O totals + hit rate
+    Exp 2 -> Disk I/O totals (build + insert + query, the whole run)
+    Exp 3 -> Disk I/O totals + hit rate
+
+Cleanup before a fresh run:
+    rm -f *.bin output.txt log.csv stats_output.txt workload_*.txt

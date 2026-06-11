@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+
+# Runtime artifacts (regenerated each run)
+output.txt
+log.csv
+stats_output.txt
+wal.log
+master.log
+*.bin
+
+# LaTeX build leftovers
+*.aux
+*.log
+*.out
+
+# Local working context (not part of the submission)
+localcontext/
+
+# Internal assistant guidance (not part of submission)
+CLAUDE.md

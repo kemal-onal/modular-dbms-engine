@@ -1,0 +1,7 @@
+tx_begin T1
+tx_op T1 create type users 2 1 id int name str
+tx_op T1 create record users 1 kemal
+tx_commit T1
+tx_begin T2
+tx_op T2 create record users 2 ahmet
+crash
