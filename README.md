@@ -1,76 +1,62 @@
-# Modular DBMS Engine with ARIES Recovery
+# 🚀 Modular DBMS Engine: Python-based RDBMS with ARIES Recovery
 
-A custom-built, modular Relational Database Management System (RDBMS) engine written entirely in Python from scratch. This project demonstrates the core internal mechanisms of a database, featuring a 4-layer architecture and a robust crash recovery system.
+A fully functional, custom-built Relational Database Management System (RDBMS) engine written entirely in pure Python from scratch. This project bypasses high-level frameworks to demonstrate a deep, low-level understanding of database internals, featuring a strict 4-layer architecture, advanced indexing, and robust transaction recovery mechanisms.
 
-## 🏗️ Architecture
+No external dependencies. No ORMs. Just raw byte manipulation, buffer pooling, and ACID compliance.
 
-The engine is built with strict separation of concerns, divided into four interacting layers:
+## 🏗️ Architecture Deep Dive
 
-1. **Disk Space Manager:** Handles raw page I/O operations over per-relation `.bin` files and manages free-space tracking using bitmaps/free lists.
-2. **Buffer Manager:** Manages the in-memory buffer pool with configurable replacement policies (LRU/MRU) and ensures Write-Ahead Logging (WAL) rules are enforced before page evictions.
-3. **File & Index Manager:** Manages record storage using slotted pages. Supports dynamic indexing strategies including **B+ Trees** and **Static Hashing** for efficient point and range queries.
-4. **Query Processor:** Parses and executes SQL-like DML/DDL commands, orchestrating transactions and estimating I/O costs for query execution plans.
+The engine is built with strict separation of concerns, simulating real-world RDBMS architectures via four interacting layers:
 
-## 🛡️ Crash Recovery (Write-Ahead Logging & ARIES)
+1. **Disk Space Manager (`disk_space_manager`):** 
+   - Handles raw page I/O operations directly over per-relation `.bin` files. 
+   - Manages free-space tracking efficiently using persistent free lists (`<type>_free.bin`) and in-memory high-water marks.
+2. **Buffer Manager (`buffer_manager`):** 
+   - Custom in-memory buffer pool with configurable `LRU` (Least Recently Used) and `MRU` (Most Recently Used) replacement policies. 
+   - Strictly enforces Write-Ahead Logging (WAL) constraints, ensuring dirty pages are never evicted before their corresponding logs are flushed to disk.
+3. **File & Index Manager (`file_index_manager`):** 
+   - Implements a **Slotted Page** architecture with bitmap occupancy tracking to optimize space utilization for variable-length records. 
+   - **Pluggable Indexing:** Seamlessly routes queries through dynamic indexing strategies based on configuration: `heap_scan`, `hash_index` (with overflow chaining), and `bplus_tree` (recursive insertion and range search support).
+4. **Query Processor (`query_processor`):** 
+   - Parses and executes SQL-like DML/DDL commands (`create`, `search`, `delete`, `range_search`). 
+   - Orchestrates transactions (`tx_begin`, `tx_commit`) and features an `explain` command for I/O cost estimation and execution plan transparency.
 
-To ensure data durability and atomicity, the engine implements a simplified **ARIES Crash Recovery** algorithm combined with **Logical Command Replay**:
+## 🛡️ ACID Compliance & Crash Recovery (ARIES)
 
-* **Write-Ahead Logging (WAL):** All database modifications are logged before the actual data pages are flushed to disk.
-* **3-Phase Recovery:** Upon restarting from an unexpected crash, the engine performs Analysis, Redo, and Undo phases.
-* **Logical Replay:** To avoid physical byte-level conflicts during interleaved transactions, the recovery manager gracefully replays only the committed (winner) transaction logs, ensuring a 100% consistent database state.
+To ensure data durability and atomicity in the event of arbitrary system failures (`crash` command), the engine implements a simplified **ARIES Crash Recovery algorithm**:
 
-## ⚙️ Features
+* **Write-Ahead Logging (WAL):** All physical modifications and logical operations are appended to `wal.log` before data pages are flushed.
+* **3-Phase Recovery on Startup:** Upon restarting from a simulated crash, the engine automatically executes:
+  1. **Analysis:** Scans checkpoints and logs to reconstruct the Transaction Table and Dirty Page Table.
+  2. **Redo:** Repeats history using physical after-images to restore the system to its exact pre-crash state.
+  3. **Undo:** Performs logical undo operations for all uncommitted (loser) transactions, ensuring system consistency without breaking slotted page structures.
 
-* **ACID Compliance:** Transaction tracking (`tx_begin`, `tx_commit`) with full rollback capabilities on system failure.
-* **Pluggable Indexes:** Seamless switching between Heap Scan, B+ Tree, and Hash indexing via configuration.
-* **Slotted Page Design:** Efficient space utilization within pages for variable and fixed-length records.
-* **System Catalog:** Persistent schema tracking for dynamically created types and tables.
+## 📊 Performance Testing & Workloads
+
+The project includes built-in benchmarking tools to test the engine under various stress conditions:
+* **Workload Generator (`workload_generator.py`):** Generates `sequential`, `random`, `range`, and `mixed` workloads to test buffer hit rates and I/O efficiency.
+* **Log Analyzer (`log.csv`):** Tracks and profiles every executed operation, allowing for post-execution metric analysis (e.g., average disk writes per 5000 inserts).
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-This engine is built entirely using Python's standard library. No external dependencies or heavy frameworks are required.
-* Python 3.8+
+This engine is built entirely using Python's standard library. 
+* Python 3.8+ 
 
 ### Installation
-Clone the repository to your local environment:
 ```bash
 git clone [https://github.com/kemal-onal/modular-dbms-engine.git](https://github.com/kemal-onal/modular-dbms-engine.git)
 cd modular-dbms-engine
 ```
 
-### Configuration (`config.json`)
+### Configuration (config.json)
+You can tweak the database behavior on the fly without changing the source code. Key parameters include:
+  1. "page_size": Size of each disk page in bytes (e.g., 4096).
+  2. "buffer_pool_size": Maximum number of pages held in memory.
+  3. "replacement_policy": Eviction policy ("LRU" or "MRU").
+  4. "index_strategy": heap_scan, hash_index, or bplus_tree.
 
-The engine's architecture is highly configurable. You can tweak the database behavior on the fly by editing the `config.json` file. Key parameters include:
-
-* **`"page_size"`:** Size of each disk page in bytes (e.g., 4096).
-* **`"buffer_pool_size"`:** Maximum number of pages held in memory.
-* **`"replacement_policy"`:** Eviction policy, either `"LRU"` or `"MRU"`.
-* **`"index_strategy"`:** Indexing mechanism, choose between `"heap_scan"`, `"hash_index"`, or `"bplus_tree"`.
-
-### Running the Engine
-
-The core entry point is `archive.py`. It requires a configuration file and an input file containing SQL-like commands or transactions.
-
+### Execution
+The core entry point is archive.py, requiring a configuration file and an input script:
 ```bash
-# Basic execution
-python archive.py config.json input.txt'
-```
-
-### Testing Crash Recovery (ARIES)
-
-To observe the Write-Ahead Logging and ARIES crash recovery in action, run a transaction scenario that ends with a forced `crash` command, then restart the engine to trigger the automated recovery process:
-
-```bash
-# 1. Run a transaction that crashes the system mid-way
-python archive.py config.json test_cases/case_1/input_a.txt
-
-# 2. Restart the engine to initiate Phase 1 (Analysis), Phase 2 (Redo), and Phase 3 (Undo)
-python archive.py config.json test_cases/case_1/input_b.txt
-```
-
-### Outputs
-
-* The output of all read operations (e.g., `search record`, `range_search`) will be written to `output.txt`.
-* Transaction execution statuses are logged in `log.csv`.
-* Write-Ahead Logs (Logical Commands) are securely flushed to `wal.log`.
+python archive.py config.json input.txt
